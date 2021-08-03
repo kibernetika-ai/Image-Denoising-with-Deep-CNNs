@@ -30,10 +30,11 @@ def parse_args():
 def load_model(path, D=6, C=64, device=torch.device('cpu')):
     net = model.DUDnCNN(D, C)
     checkpoint = torch.load(path, map_location=torch.device('cpu'))
-    net.load_state_dict(checkpoint['Net'])
+    if 'QAT' not in checkpoint:
+        net.load_state_dict(checkpoint['Net'])
     net.eval()
 
-    return net.to(device)
+    return net.to(device), checkpoint.get('QAT')
 
 
 def img_to_tensor(img, device):
@@ -51,7 +52,7 @@ def tensor_to_img(tensor):
     return tensor.cpu().numpy().astype(np.uint8)
 
 
-def quantize_model(quantize_type, model, input_example=None):
+def quantize_model(quantize_type, model, input_example=None, qat_state=None):
     if quantize_type == 'dynamic':
         model = torch.quantization.quantize_dynamic(
             model,
@@ -78,8 +79,8 @@ def quantize_model(quantize_type, model, input_example=None):
         # quantize
         model = quantize_fx.convert_fx(model_prepared)
     elif quantize_type == 'fx_static':
-        # qconfig_dict = {"": torch.quantization.get_default_qconfig('qnnpack')}
-        qconfig_dict = {"": torch.quantization.get_default_qconfig('fbgemm')}
+        qconfig_dict = {"": torch.quantization.get_default_qconfig('qnnpack')}
+        # qconfig_dict = {"": torch.quantization.get_default_qconfig('fbgemm')}
         # prepare
         model_prepared = quantize_fx.prepare_fx(model, qconfig_dict)
         # calibrate (not shown)
@@ -87,6 +88,8 @@ def quantize_model(quantize_type, model, input_example=None):
             model_prepared(input_example)
         # quantize
         model = quantize_fx.convert_fx(model_prepared)
+        if qat_state is not None:
+           model.load_state_dict(qat_state)
 
     return model
 
@@ -94,7 +97,7 @@ def quantize_model(quantize_type, model, input_example=None):
 def main():
     args = parse_args()
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    denoise = load_model(args.model, args.D, args.C, device=device)
+    denoise, qat_state = load_model(args.model, args.D, args.C, device=device)
 
     img = cv2.cvtColor(cv2.imread(args.image), cv2.COLOR_BGR2RGB)
     small = cv2.resize(img, (720, 720), interpolation=cv2.INTER_AREA)
@@ -103,7 +106,12 @@ def main():
 
     if args.quantize:
         print('Quantize model...')
-        denoise = quantize_model(args.quantize, denoise, input_example=tensor)
+        denoise = quantize_model(
+            args.quantize,
+            denoise,
+            input_example=tensor,
+            qat_state=qat_state,
+        )
         print('Done.')
 
     t = time.time()
