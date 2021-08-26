@@ -79,8 +79,8 @@ def quantize_model(quantize_type, model, input_example=None, qat_state=None):
         # quantize
         model = quantize_fx.convert_fx(model_prepared)
     elif quantize_type == 'fx_static':
-        qconfig_dict = {"": torch.quantization.get_default_qconfig('qnnpack')}
-        # qconfig_dict = {"": torch.quantization.get_default_qconfig('fbgemm')}
+        # qconfig_dict = {"": torch.quantization.get_default_qconfig('qnnpack')}
+        qconfig_dict = {"": torch.quantization.get_default_qconfig('fbgemm')}
         # prepare
         model_prepared = quantize_fx.prepare_fx(model, qconfig_dict)
         # calibrate (not shown)
